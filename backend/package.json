@@ -1,0 +1,22 @@
+{
+  "name": "cane-transporter-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch server.js",
+    "start": "node server.js",
+    "import:xlsx": "node import-xlsx.js",
+    "seed:vehicles": "node seed-dummy.js",
+    "seed:periodic": "node seed-periodic-evals.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "helmet": "^7.0.0",
+    "morgan": "^1.10.0",
+    "dotenv": "^16.4.7",
+    "mysql2": "^3.11.4",
+    "xlsx": "^0.18.5"
+  }
+}

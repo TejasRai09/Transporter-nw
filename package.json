@@ -1,0 +1,12 @@
+{
+  "name": "cane-transporter-workspace",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm --prefix backend run dev\" \"npm --prefix Studio run start\"",
+    "start": "concurrently \"npm --prefix backend run start\" \"npm --prefix Studio run start\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "serve": "^14.2.1"
+  }
+}
