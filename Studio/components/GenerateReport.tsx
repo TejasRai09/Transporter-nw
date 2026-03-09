@@ -29,6 +29,7 @@ interface DetailedVehicle {
   age_score: number | null;
   fitness_expiry: string | null;
   insurance_expiry: string | null;
+  doc_list: string[] | null;
   evaluations: EvalEntry[];
   eval_count: number;
   dq_count: number;
@@ -290,6 +291,7 @@ const GenerateReport: React.FC<GenerateReportProps> = ({ season, setSeason, user
       'Driver Name': v.driver_name,
       'Driver Mobile': v.driver_mobile,
       'Doc Score (/10)': v.doc_score ?? '',
+      'Documents Present': v.doc_list && v.doc_list.length ? v.doc_list.join(', ') : (v.doc_score === 10 ? 'All docs present' : v.doc_score === 0 ? 'Docs missing/incomplete' : ''),
       'Age Score (/2)': v.age_score ?? '',
       'Fitness Expiry': v.fitness_expiry ? String(v.fitness_expiry).slice(0, 10) : '',
       'Insurance Expiry': v.insurance_expiry ? String(v.insurance_expiry).slice(0, 10) : '',
@@ -368,7 +370,7 @@ const GenerateReport: React.FC<GenerateReportProps> = ({ season, setSeason, user
       {/* Filter Form */}
       <div className="bg-white rounded-[32px] border border-slate-200 p-8 shadow-sm space-y-6 no-print">
         <h3 className="text-sm font-black uppercase tracking-widest text-slate-500">Report Parameters</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="flex flex-col gap-2">
             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Season</label>
             <select
@@ -398,19 +400,6 @@ const GenerateReport: React.FC<GenerateReportProps> = ({ season, setSeason, user
               onChange={(e) => setToDate(e.target.value)}
               className="h-12 px-4 rounded-2xl border border-slate-200 bg-slate-50 text-sm font-bold focus:ring-2 focus:ring-blue-100 outline-none"
             />
-          </div>
-          <div className="flex flex-col gap-2">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Transporter Filter</label>
-            <select
-              value={transporterFilter}
-              onChange={(e) => setTransporterFilter(e.target.value)}
-              className="h-12 px-4 rounded-2xl border border-slate-200 bg-slate-50 text-sm font-bold focus:ring-2 focus:ring-blue-100 outline-none"
-            >
-              <option value="">All Transporters</option>
-              {transporters.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-4">
@@ -462,7 +451,17 @@ const GenerateReport: React.FC<GenerateReportProps> = ({ season, setSeason, user
                   Season {localSeason} · {dateRangeLabel}
                 </h3>
               </div>
-              <div className="flex items-center gap-3 no-print">
+              <div className="flex flex-wrap items-center gap-3 no-print">
+                <select
+                  value={transporterFilter}
+                  onChange={(e) => setTransporterFilter(e.target.value)}
+                  className="h-10 px-4 rounded-xl border border-slate-200 bg-slate-50 text-sm font-bold focus:ring-2 focus:ring-blue-100 outline-none"
+                >
+                  <option value="">All Transporters</option>
+                  {transporters.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
                 <button
                   onClick={() => {
                     const allIds = new Set(filteredData.map((d) => d.vehicle_id));
@@ -611,7 +610,24 @@ const GenerateReport: React.FC<GenerateReportProps> = ({ season, setSeason, user
                             <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
                               <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Documentation</div>
                               <div className="text-lg font-black text-slate-900">{vehicle.doc_score ?? '—'}<span className="text-xs font-bold text-slate-400">/10</span></div>
-                              <div className="text-[10px] text-slate-500">{vehicle.doc_score === 10 ? 'All docs present' : vehicle.doc_score === 0 ? 'Docs missing' : '—'}</div>
+                              {vehicle.doc_list && vehicle.doc_list.length > 0 ? (
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {(['RC Status', 'Fitness Valid', 'Insurance Active', 'Permit Holder'] as string[]).map((doc) => (
+                                    <span
+                                      key={doc}
+                                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                                        vehicle.doc_list!.includes(doc)
+                                          ? 'bg-emerald-100 text-emerald-700'
+                                          : 'bg-red-100 text-red-500 line-through'
+                                      }`}
+                                    >
+                                      {doc}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="text-[10px] text-slate-500">{vehicle.doc_score === 10 ? 'All docs present' : vehicle.doc_score === 0 ? 'Docs missing' : '—'}</div>
+                              )}
                             </div>
                             <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
                               <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Asset Age</div>
@@ -712,6 +728,7 @@ const GenerateReport: React.FC<GenerateReportProps> = ({ season, setSeason, user
                         Baseline — Doc: {vehicle.doc_score ?? '—'}/10 | Age: {vehicle.age_score ?? '—'}/2 | Total: {baselineTotal}/12
                         {vehicle.fitness_expiry ? ` | Fitness: ${String(vehicle.fitness_expiry).slice(0, 10)}` : ''}
                         {vehicle.insurance_expiry ? ` | Insurance: ${String(vehicle.insurance_expiry).slice(0, 10)}` : ''}
+                        {vehicle.doc_list && vehicle.doc_list.length > 0 ? ` | Documents: ${vehicle.doc_list.join(', ')}` : ''}
                       </div>
                       {vehicle.evaluations.length === 0 ? (
                         <div className="text-xs text-slate-400 italic">No evaluations in selected period.</div>

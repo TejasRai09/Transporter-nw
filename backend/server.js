@@ -159,6 +159,12 @@ async function createSchema() {
     } catch (e) {
       if (e.errno !== 1060) throw e; // Ignore duplicate column error
     }
+    // Add doc_list column if it doesn't exist
+    try {
+      await conn.query('ALTER TABLE baselines ADD COLUMN doc_list TEXT NULL');
+    } catch (e) {
+      if (e.errno !== 1060) throw e; // Ignore duplicate column error
+    }
   } finally {
     conn.release();
   }
@@ -350,11 +356,12 @@ async function bootstrap() {
     res.json(rows[0]);
   });
   app.post('/vehicles/:id/baseline', async (req, res) => {
-    const { season, doc_score, age_score, fitness_expiry, insurance_expiry } = req.body || {};
+    const { season, doc_score, age_score, fitness_expiry, insurance_expiry, doc_list } = req.body || {};
     if (season == null || doc_score == null || age_score == null) return res.status(400).json({ error: 'season, doc_score, age_score required' });
+    const docListJson = doc_list ? (typeof doc_list === 'string' ? doc_list : JSON.stringify(doc_list)) : null;
     const [result] = await query(
-      'INSERT INTO baselines (vehicle_id, season, doc_score, age_score, fitness_expiry, insurance_expiry) VALUES (?,?,?,?,?,?)',
-      [req.params.id, season, doc_score, age_score, fitness_expiry || null, insurance_expiry || null]
+      'INSERT INTO baselines (vehicle_id, season, doc_score, age_score, fitness_expiry, insurance_expiry, doc_list) VALUES (?,?,?,?,?,?,?)',
+      [req.params.id, season, doc_score, age_score, fitness_expiry || null, insurance_expiry || null, docListJson]
     );
     res.json({ id: result.insertId });
   });
@@ -717,12 +724,13 @@ async function bootstrap() {
           (SELECT b.doc_score FROM baselines b WHERE b.vehicle_id = v.id AND b.season = ? ORDER BY b.created_at DESC LIMIT 1) AS doc_score,
           (SELECT b.age_score FROM baselines b WHERE b.vehicle_id = v.id AND b.season = ? ORDER BY b.created_at DESC LIMIT 1) AS age_score,
           (SELECT b.fitness_expiry FROM baselines b WHERE b.vehicle_id = v.id AND b.season = ? ORDER BY b.created_at DESC LIMIT 1) AS fitness_expiry,
-          (SELECT b.insurance_expiry FROM baselines b WHERE b.vehicle_id = v.id AND b.season = ? ORDER BY b.created_at DESC LIMIT 1) AS insurance_expiry
+          (SELECT b.insurance_expiry FROM baselines b WHERE b.vehicle_id = v.id AND b.season = ? ORDER BY b.created_at DESC LIMIT 1) AS insurance_expiry,
+          (SELECT b.doc_list FROM baselines b WHERE b.vehicle_id = v.id AND b.season = ? ORDER BY b.created_at DESC LIMIT 1) AS doc_list
         FROM vehicles v
         INNER JOIN transporters t ON t.id = v.transporter_id
         WHERE t.season = ?
         ORDER BY t.name, v.vehicle_no`,
-        [season, season, season, season, season, season]
+        [season, season, season, season, season, season, season]
       );
 
       // All evaluations in the date range
@@ -777,6 +785,7 @@ async function bootstrap() {
           age_score: v.age_score == null ? null : Number(v.age_score),
           fitness_expiry: v.fitness_expiry,
           insurance_expiry: v.insurance_expiry,
+          doc_list: (() => { try { return v.doc_list ? JSON.parse(v.doc_list) : null; } catch { return null; } })(),
           evaluations: evals,
           eval_count: evals.length,
           dq_count: dqCount,

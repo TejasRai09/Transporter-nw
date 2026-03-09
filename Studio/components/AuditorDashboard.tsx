@@ -34,6 +34,18 @@ const AuditorDashboard: React.FC<AuditorDashboardProps> = ({
   const [isEditingBaseline, setIsEditingBaseline] = useState<boolean>(true);
   const [fitnessExpiry, setFitnessExpiry] = useState<string>('');
   const [insuranceExpiry, setInsuranceExpiry] = useState<string>('');
+
+  const today = new Date().toISOString().slice(0, 10);
+  const isExpiredDate = (dateStr: string) => !!dateStr && dateStr < today;
+  const docExpiryMap: Record<string, string> = {
+    'Fitness Valid': fitnessExpiry,
+    'Insurance Active': insuranceExpiry,
+  };
+  // Only docs that are checked AND not expired count toward doc score
+  const effectiveDocChecks = docChecks.filter((doc) => {
+    const expiry = docExpiryMap[doc];
+    return !expiry || !isExpiredDate(expiry);
+  });
   const [evalHistory, setEvalHistory] = useState<Evaluation[]>([]);
   const [selectedEvalId, setSelectedEvalId] = useState<string | null>(null);
   const [showEvalModal, setShowEvalModal] = useState<boolean>(false);
@@ -90,7 +102,17 @@ const AuditorDashboard: React.FC<AuditorDashboardProps> = ({
             insurance_expiry: row.insurance_expiry ?? null,
           };
           setBaselines((prev) => [...prev.filter((x) => x.vehicle_id !== selectedVehicleId), b]);
-          setDocChecks(row.doc_score === 10 ? [...docOptions] : []);
+          // Restore doc list from saved doc_list, falling back to score inference
+          if (row.doc_list) {
+            try {
+              const list = typeof row.doc_list === 'string' ? JSON.parse(row.doc_list) : row.doc_list;
+              setDocChecks(Array.isArray(list) ? list : (row.doc_score === 10 ? [...docOptions] : []));
+            } catch {
+              setDocChecks(row.doc_score === 10 ? [...docOptions] : []);
+            }
+          } else {
+            setDocChecks(row.doc_score === 10 ? [...docOptions] : []);
+          }
           setAgeSelection(row.age_score);
           setFitnessExpiry(row.fitness_expiry ? String(row.fitness_expiry).slice(0, 10) : '');
           setInsuranceExpiry(row.insurance_expiry ? String(row.insurance_expiry).slice(0, 10) : '');
@@ -192,7 +214,8 @@ const AuditorDashboard: React.FC<AuditorDashboardProps> = ({
       alert('Select vehicle age');
       return;
     }
-    const docScore = docChecks.length === docOptions.length ? 10 : 0;
+    // Expired documents don't count — effectiveDocChecks excludes them
+    const docScore = effectiveDocChecks.length === docOptions.length ? 10 : 0;
     const ageScore = ageSelection;
     try {
       await api(`/vehicles/${selectedVehicleId}/baseline`, {
@@ -203,6 +226,7 @@ const AuditorDashboard: React.FC<AuditorDashboardProps> = ({
           age_score: ageScore,
           fitness_expiry: fitnessExpiry || null,
           insurance_expiry: insuranceExpiry || null,
+          doc_list: docChecks,
         },
       });
       const newBaseline: Baseline = {
@@ -465,24 +489,43 @@ const AuditorDashboard: React.FC<AuditorDashboardProps> = ({
                
                <div className="space-y-8">
                  <div className="grid sm:grid-cols-2 gap-4">
-                   {docOptions.map(doc => (
-                     <label key={doc} className={`flex items-center p-5 rounded-[24px] border ${docChecks.includes(doc) ? 'border-blue-200 bg-blue-50' : 'border-slate-100 bg-slate-50'} cursor-pointer transition-all group`}>
-                       <input
-                         type="checkbox"
-                         className="w-5 h-5 rounded-md border-slate-300 text-blue-600 focus:ring-blue-500 transition-all cursor-pointer"
-                         checked={docChecks.includes(doc)}
-                         disabled={!isEditingBaseline}
-                         onChange={(e) => {
-                           if (e.target.checked) {
-                             setDocChecks([...docChecks, doc]);
-                           } else {
-                             setDocChecks(docChecks.filter((d) => d !== doc));
-                           }
-                         }}
-                       />
-                       <span className="ml-4 text-sm font-bold text-slate-700 group-hover:text-slate-900">{doc}</span>
-                     </label>
-                   ))}
+                   {docOptions.map((doc) => {
+                     const isChecked = docChecks.includes(doc);
+                     const expiryDate = docExpiryMap[doc];
+                     const expired = isChecked && isExpiredDate(expiryDate);
+                     const valid = isChecked && expiryDate && !isExpiredDate(expiryDate);
+                     const cardClass = expired
+                       ? 'border-red-200 bg-red-50'
+                       : isChecked
+                       ? 'border-blue-200 bg-blue-50'
+                       : 'border-slate-100 bg-slate-50';
+                     return (
+                       <label key={doc} className={`flex items-center p-5 rounded-[24px] border ${cardClass} cursor-pointer transition-all group`}>
+                         <input
+                           type="checkbox"
+                           className="w-5 h-5 rounded-md border-slate-300 text-blue-600 focus:ring-blue-500 transition-all cursor-pointer"
+                           checked={isChecked}
+                           disabled={!isEditingBaseline}
+                           onChange={(e) => {
+                             if (e.target.checked) {
+                               setDocChecks([...docChecks, doc]);
+                             } else {
+                               setDocChecks(docChecks.filter((d) => d !== doc));
+                             }
+                           }}
+                         />
+                         <div className="ml-4 flex-1 flex items-center justify-between gap-2">
+                           <span className={`text-sm font-bold ${expired ? 'text-red-700' : 'text-slate-700'} group-hover:text-slate-900`}>{doc}</span>
+                           {expired && (
+                             <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-red-100 text-red-600 shrink-0">EXPIRED · won&apos;t count</span>
+                           )}
+                           {valid && (
+                             <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 shrink-0">VALID</span>
+                           )}
+                         </div>
+                       </label>
+                     );
+                   })}
                  </div>
 
                  <div className="space-y-4">
@@ -539,10 +582,18 @@ const AuditorDashboard: React.FC<AuditorDashboardProps> = ({
                  <div className="flex items-center justify-between gap-3">
                    {currentBaseline && !isEditingBaseline ? (
                      <>
-                       <div className="text-sm font-bold text-slate-600">
-                         Saved: docs {currentBaseline.doc_score}/10 · age {currentBaseline.age_score}
-                         {currentBaseline.fitness_expiry ? ` · fitness ${String(currentBaseline.fitness_expiry).slice(0, 10)}` : ''}
-                         {currentBaseline.insurance_expiry ? ` · insurance ${String(currentBaseline.insurance_expiry).slice(0, 10)}` : ''}
+                       <div className="text-sm font-bold text-slate-600 space-y-1">
+                         <div>
+                           Saved: docs {currentBaseline.doc_score}/10 · age {currentBaseline.age_score}
+                           {currentBaseline.fitness_expiry ? ` · fitness ${String(currentBaseline.fitness_expiry).slice(0, 10)}` : ''}
+                           {currentBaseline.insurance_expiry ? ` · insurance ${String(currentBaseline.insurance_expiry).slice(0, 10)}` : ''}
+                         </div>
+                         {isExpiredDate(String(currentBaseline.fitness_expiry ?? '').slice(0, 10)) && (
+                           <div className="text-[11px] font-black text-red-600">⚠ Fitness cert expired — re-audit to update score</div>
+                         )}
+                         {isExpiredDate(String(currentBaseline.insurance_expiry ?? '').slice(0, 10)) && (
+                           <div className="text-[11px] font-black text-red-600">⚠ Insurance expired — re-audit to update score</div>
+                         )}
                        </div>
                        <div className="flex gap-2">
                          <button
