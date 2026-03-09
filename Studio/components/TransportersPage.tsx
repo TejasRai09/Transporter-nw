@@ -12,20 +12,36 @@ const TransportersPage: React.FC<TransportersPageProps> = ({ vehicles, transport
   const [transporterId, setTransporterId] = useState('');
   const [truckType, setTruckType] = useState('');
 
+  // Only show transporters & vehicles for the active season
+  const seasonTransporters = useMemo(
+    () => transporters.filter((t) => t.season === season),
+    [transporters, season]
+  );
+
+  const seasonTransporterIds = useMemo(
+    () => new Set(seasonTransporters.map((t) => t.id)),
+    [seasonTransporters]
+  );
+
+  const seasonVehicles = useMemo(
+    () => vehicles.filter((v) => seasonTransporterIds.has(v.transporter_id)),
+    [vehicles, seasonTransporterIds]
+  );
+
   const truckTypes = useMemo(() => {
     const set = new Set<string>();
-    vehicles.forEach((v) => {
+    seasonVehicles.forEach((v) => {
       const type = (v.truck_type || '').trim();
       if (type) set.add(type);
     });
     return Array.from(set).sort();
-  }, [vehicles]);
+  }, [seasonVehicles]);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     const transporterIdNorm = String(transporterId).trim();
     const truckTypeNorm = String(truckType).trim();
-    return vehicles
+    return seasonVehicles
       .filter((v) => (transporterIdNorm ? String(v.transporter_id || '').trim() === transporterIdNorm : true))
       .filter((v) => (truckTypeNorm ? (v.truck_type || '').trim() === truckTypeNorm : true))
       .filter((v) => {
@@ -43,16 +59,16 @@ const TransportersPage: React.FC<TransportersPageProps> = ({ vehicles, transport
         const nameB = `${b.transporter_name || ''}-${b.vehicle_no || ''}`.toLowerCase();
         return nameA.localeCompare(nameB);
       });
-  }, [vehicles, search, transporterId, truckType]);
+  }, [seasonVehicles, search, transporterId, truckType]);
 
   const stats = useMemo(() => {
-    const truckSet = new Set(vehicles.map((v) => v.truck_type).filter(Boolean));
+    const truckSet = new Set(seasonVehicles.map((v) => v.truck_type).filter(Boolean));
     return {
-      vehicles: vehicles.length,
-      transporters: new Set(vehicles.map((v) => v.transporter_id)).size,
+      vehicles: seasonVehicles.length,
+      transporters: seasonTransporters.length,
       truckTypes: truckSet.size,
     };
-  }, [vehicles]);
+  }, [seasonVehicles, seasonTransporters]);
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 space-y-8 animate-fade-in-up">
@@ -111,7 +127,7 @@ const TransportersPage: React.FC<TransportersPageProps> = ({ vehicles, transport
               className="w-full h-12 px-4 rounded-2xl border border-slate-200 bg-white text-sm font-bold text-slate-800 focus:ring-4 focus:ring-blue-100"
             >
               <option value="">All</option>
-              {transporters.map((t) => (
+              {seasonTransporters.map((t) => (
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
             </select>
