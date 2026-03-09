@@ -700,6 +700,97 @@ async function bootstrap() {
     }
   });
 
+  // Detailed report: all vehicles + all evals in date range, full payload breakdown
+  app.get('/reports/detailed', async (req, res) => {
+    try {
+      const { season, from, to } = req.query || {};
+      if (!season) return res.status(400).json({ error: 'season is required' });
+
+      const fromDt = normalizeDateTimeFilter(from, 'from');
+      const toDt = normalizeDateTimeFilter(to, 'to');
+
+      // All vehicles + latest baseline for the season
+      const [vehicleRows] = await query(
+        `SELECT
+          v.id AS vehicle_id, v.vehicle_no, v.truck_type, v.driver_name, v.driver_mobile, v.sl_no,
+          t.id AS transporter_id, t.name AS transporter_name, ? AS season,
+          (SELECT b.doc_score FROM baselines b WHERE b.vehicle_id = v.id AND b.season = ? ORDER BY b.created_at DESC LIMIT 1) AS doc_score,
+          (SELECT b.age_score FROM baselines b WHERE b.vehicle_id = v.id AND b.season = ? ORDER BY b.created_at DESC LIMIT 1) AS age_score,
+          (SELECT b.fitness_expiry FROM baselines b WHERE b.vehicle_id = v.id AND b.season = ? ORDER BY b.created_at DESC LIMIT 1) AS fitness_expiry,
+          (SELECT b.insurance_expiry FROM baselines b WHERE b.vehicle_id = v.id AND b.season = ? ORDER BY b.created_at DESC LIMIT 1) AS insurance_expiry
+        FROM vehicles v
+        INNER JOIN transporters t ON t.id = v.transporter_id
+        WHERE t.season = ?
+        ORDER BY t.name, v.vehicle_no`,
+        [season, season, season, season, season, season]
+      );
+
+      // All evaluations in the date range
+      const evalConds = ['e.season = ?'];
+      const evalParams = [season];
+      if (fromDt) { evalConds.push('e.created_at >= ?'); evalParams.push(fromDt); }
+      if (toDt)   { evalConds.push('e.created_at <= ?'); evalParams.push(toDt); }
+
+      const [evalRows] = await query(
+        `SELECT e.id AS eval_id, e.vehicle_id, e.score, e.rank_label, e.dq,
+                CAST(e.payload AS CHAR) AS payload, e.created_at AS eval_date
+         FROM evaluations e
+         WHERE ${evalConds.join(' AND ')}
+         ORDER BY e.vehicle_id, e.created_at`,
+        evalParams
+      );
+
+      // Group evals by vehicle_id
+      const evalsByVehicle = new Map();
+      for (const e of evalRows) {
+        const vid = String(e.vehicle_id);
+        if (!evalsByVehicle.has(vid)) evalsByVehicle.set(vid, []);
+        evalsByVehicle.get(vid).push({
+          eval_id: e.eval_id,
+          score: Number(e.score),
+          rank_label: e.rank_label,
+          dq: Number(e.dq) === 1,
+          payload: typeof e.payload === 'string' ? (() => { try { return JSON.parse(e.payload || '{}'); } catch { return {}; } })() : (e.payload || {}),
+          eval_date: e.eval_date,
+        });
+      }
+
+      const result = vehicleRows.map((v) => {
+        const vid = String(v.vehicle_id);
+        const evals = evalsByVehicle.get(vid) || [];
+        const nonDqEvals = evals.filter((e) => !e.dq);
+        const dqCount = evals.filter((e) => e.dq).length;
+        const avgScore = nonDqEvals.length > 0
+          ? nonDqEvals.reduce((s, e) => s + e.score, 0) / nonDqEvals.length
+          : null;
+        return {
+          vehicle_id: v.vehicle_id,
+          vehicle_no: v.vehicle_no,
+          truck_type: v.truck_type,
+          driver_name: v.driver_name,
+          driver_mobile: v.driver_mobile,
+          sl_no: v.sl_no,
+          transporter_id: v.transporter_id,
+          transporter_name: v.transporter_name,
+          season: v.season,
+          doc_score: v.doc_score == null ? null : Number(v.doc_score),
+          age_score: v.age_score == null ? null : Number(v.age_score),
+          fitness_expiry: v.fitness_expiry,
+          insurance_expiry: v.insurance_expiry,
+          evaluations: evals,
+          eval_count: evals.length,
+          dq_count: dqCount,
+          avg_score: avgScore,
+        };
+      });
+
+      res.json(result);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'server error' });
+    }
+  });
+
   // Logs
   app.post('/logs', async (req, res) => {
     const { who, role, action } = req.body || {};

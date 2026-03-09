@@ -7,9 +7,9 @@ interface HeaderProps {
   user: User;
   season: string;
   onLogout: () => void;
-  view: 'dashboard' | 'reports' | 'transporters';
+  view: 'dashboard' | 'reports' | 'transporters' | 'generate-report';
   canViewDashboard: boolean;
-  onNavigate: (view: 'dashboard' | 'reports' | 'transporters') => void;
+  onNavigate: (view: 'dashboard' | 'reports' | 'transporters' | 'generate-report') => void;
 }
 
 const Header: React.FC<HeaderProps> = ({ user, season, onLogout, view, canViewDashboard, onNavigate }) => {
@@ -103,6 +103,17 @@ const Header: React.FC<HeaderProps> = ({ user, season, onLogout, view, canViewDa
                   Transporters
                 </button>
               )}
+              <button
+                onClick={() => onNavigate('generate-report')}
+                className={`text-xs font-bold pb-1 border-b-2 transition-colors ${
+                  view === 'generate-report'
+                    ? 'text-slate-900 border-blue-600'
+                    : 'text-slate-400 hover:text-slate-600 border-transparent'
+                }`}
+                title="Generate detailed evaluation report"
+              >
+                Gen Report
+              </button>
             </nav>
           </div>
 

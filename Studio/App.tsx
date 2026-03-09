@@ -9,6 +9,7 @@ import { api } from './api';
 import Reports from './components/Reports';
 import TransportersPage from './components/TransportersPage.tsx';
 import ViewerDashboard from './components/ViewerDashboard';
+import GenerateReport from './components/GenerateReport';
 
 
 const App: React.FC = () => {
@@ -29,7 +30,7 @@ const App: React.FC = () => {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [reports, setReports] = useState<ReportRow[]>([]);
   const [windowedReports, setWindowedReports] = useState<ConsolidatedReportRow[]>([]);
-  const [view, setView] = useState<'dashboard' | 'reports' | 'transporters'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'reports' | 'transporters' | 'generate-report'>('dashboard');
   const [reportFilter, setReportFilter] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -344,6 +345,13 @@ const App: React.FC = () => {
             setFromDate={setFromDate}
             setToDate={setToDate}
             refreshReports={refreshViewerReports}
+          />
+        )}
+        {view === 'generate-report' && (
+          <GenerateReport
+            season={season}
+            setSeason={setSeason}
+            userRole={user.role}
           />
         )}
       </main>
