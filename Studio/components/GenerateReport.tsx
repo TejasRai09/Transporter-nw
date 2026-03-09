@@ -1,4 +1,5 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import * as XLSX from 'xlsx';
 import { api } from '../api';
 import { EVAL_CONFIG, SEASON_OPTIONS } from '../constants';
 import { UserRole } from '../types';
@@ -221,7 +222,6 @@ const GenerateReport: React.FC<GenerateReportProps> = ({ season, setSeason, user
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [expandedEvalIds, setExpandedEvalIds] = useState<Set<number>>(new Set());
   const [showOnlyWithEvals, setShowOnlyWithEvals] = useState(false);
-  const printRef = useRef<HTMLDivElement>(null);
 
   const handleGenerate = async () => {
     if (!localSeason) return;
@@ -278,8 +278,76 @@ const GenerateReport: React.FC<GenerateReportProps> = ({ season, setSeason, user
       return next;
     });
 
-  const handlePrint = () => {
-    window.print();
+  const downloadExcel = () => {
+    const wb = XLSX.utils.book_new();
+
+    // ── Sheet 1: Vehicle Summary ─────────────────────────────────────────────
+    const summaryRows = filteredData.map((v) => ({
+      'Transporter': v.transporter_name,
+      'Vehicle No': v.vehicle_no,
+      'Truck Type': v.truck_type,
+      'SL No': v.sl_no,
+      'Driver Name': v.driver_name,
+      'Driver Mobile': v.driver_mobile,
+      'Doc Score (/10)': v.doc_score ?? '',
+      'Age Score (/2)': v.age_score ?? '',
+      'Fitness Expiry': v.fitness_expiry ? String(v.fitness_expiry).slice(0, 10) : '',
+      'Insurance Expiry': v.insurance_expiry ? String(v.insurance_expiry).slice(0, 10) : '',
+      'Eval Count': v.eval_count,
+      'DQ Count': v.dq_count,
+      'Avg Score': v.avg_score != null ? v.avg_score : '',
+    }));
+    const ws1 = XLSX.utils.json_to_sheet(summaryRows.length ? summaryRows : [{}]);
+    XLSX.utils.book_append_sheet(wb, ws1, 'Vehicle Summary');
+
+    // ── Sheet 2: Evaluations (one row per eval) ──────────────────────────────
+    const evalItems = EVAL_CONFIG.flatMap((section) =>
+      section.items.filter((item) => item.id !== 'accident_reason')
+    );
+
+    const evalRows = filteredData.flatMap((v) =>
+      v.evaluations.map((e, idx) => {
+        const row: Record<string, string | number> = {
+          'Transporter': v.transporter_name,
+          'Vehicle No': v.vehicle_no,
+          'Truck Type': v.truck_type,
+          'Eval #': idx + 1,
+          'Eval Date': new Date(e.eval_date).toLocaleString('en-IN'),
+          'Score': e.score,
+          'Rank': rankLabel(e.rank_label, e.dq),
+          'DQ': e.dq ? 'Yes' : 'No',
+        };
+        for (const item of evalItems) {
+          const raw = e.payload[item.id];
+          if (raw === undefined) { row[item.label] = ''; continue; }
+          if (item.id === 'rto') {
+            const doc = e.payload['rto_document'];
+            const arr: string[] = Array.isArray(doc) ? doc : typeof doc === 'string' ? [doc] : [];
+            const scoreVal = typeof raw === 'number' ? ` (+${raw})` : '';
+            row[item.label] = (arr.length
+              ? arr.map((s) => { const o = item.options.find((x) => String(x.val) === s); return o ? o.label : s; }).join(', ')
+              : 'No instances') + scoreVal;
+          } else if (item.id === 'acc') {
+            const optLbl = getOptionLabel(item.id, raw);
+            const scoreStr = typeof raw === 'number' ? ` (${raw >= 0 ? '+' : ''}${raw})` : raw === 'DQ' ? ' (-15 DQ)' : '';
+            const reasonList = e.payload['accident_reason_list'] || e.payload['accident_reason'];
+            const reasons: string[] = Array.isArray(reasonList) ? reasonList : typeof reasonList === 'string' ? [reasonList] : [];
+            const reasonsText = reasons.length ? ` — ${reasons.map((r) => getOptionLabel('accident_reason', r)).join(', ')}` : '';
+            row[item.label] = `${optLbl}${reasonsText}${scoreStr}`;
+          } else {
+            const score = typeof raw === 'number' ? raw : null;
+            const optLbl = getOptionLabel(item.id, raw);
+            row[item.label] = score !== null ? `${optLbl} (${score >= 0 ? '+' : ''}${score})` : optLbl;
+          }
+        }
+        return row;
+      })
+    );
+    const ws2 = XLSX.utils.json_to_sheet(evalRows.length ? evalRows : [{}]);
+    XLSX.utils.book_append_sheet(wb, ws2, 'Evaluations');
+
+    const fileName = `fleet_report_${localSeason}_${fromDate || 'all'}_${toDate || 'all'}.xlsx`.replace(/\//g, '-');
+    XLSX.writeFile(wb, fileName);
   };
 
   const dateRangeLabel = fromDate || toDate
@@ -384,7 +452,7 @@ const GenerateReport: React.FC<GenerateReportProps> = ({ season, setSeason, user
 
       {/* Report Output */}
       {generated && !loading && (
-        <div ref={printRef} className="space-y-6">
+        <div className="space-y-6">
           {/* Summary Bar */}
           <div className="bg-white rounded-[32px] border border-slate-200 p-6 shadow-sm">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 no-print">
@@ -405,13 +473,13 @@ const GenerateReport: React.FC<GenerateReportProps> = ({ season, setSeason, user
                   {expandedIds.size > 0 ? 'Collapse All' : 'Expand All'}
                 </button>
                 <button
-                  onClick={handlePrint}
+                  onClick={downloadExcel}
                   className="h-10 px-5 rounded-xl bg-blue-600 text-white text-[11px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-blue-700"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                   </svg>
-                  Print / PDF
+                  Download Report
                 </button>
               </div>
             </div>
